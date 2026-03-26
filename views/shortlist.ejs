@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shortlist | Vault</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-white min-h-screen flex flex-col items-center pt-8 pb-12 px-4">
+
+    <div class="w-full max-w-7xl">
+        <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+            <h1 class="text-3xl font-bold text-purple-400">🏦 The Shortlist Vault</h1>
+            <div class="flex gap-4">
+                <a href="/admin" class="bg-blue-600 px-6 py-2 rounded font-bold hover:bg-blue-500 transition whitespace-nowrap">
+                    ⬅️ Back to Waitlist
+                </a>
+                <button onclick="exportVault()" class="bg-green-600 px-6 py-2 rounded font-bold hover:bg-green-500 transition shadow-lg shadow-green-900/50 whitespace-nowrap">
+                    💾 Export JSON
+                </button>
+            </div>
+        </div>
+
+        <div class="bg-gray-800 p-6 rounded-lg mb-8 shadow-xl flex flex-col items-center border border-gray-700">
+            <h2 class="text-2xl font-bold text-gray-300 mb-4">
+                Mint Spots Allocated: <span id="mintCount" class="text-purple-400">0</span> <span class="text-gray-500 text-lg">/ 333</span>
+            </h2>
+            
+            <div class="flex flex-wrap justify-center gap-4 md:gap-8 w-full">
+                <div class="bg-yellow-900/40 text-yellow-400 px-6 py-3 rounded-lg border border-yellow-700/50 flex flex-col items-center min-w-[120px]">
+                    <span class="text-xs uppercase tracking-widest font-bold text-yellow-600">OG</span>
+                    <span id="ogCount" class="text-2xl font-black">0</span>
+                </div>
+                
+                <div class="bg-green-900/40 text-green-400 px-6 py-3 rounded-lg border border-green-700/50 flex flex-col items-center min-w-[120px]">
+                    <span class="text-xs uppercase tracking-widest font-bold text-green-600">GTD</span>
+                    <span id="gtdCount" class="text-2xl font-black">0</span>
+                </div>
+                
+                <div class="bg-gray-800 text-gray-400 px-6 py-3 rounded-lg border border-gray-600 flex flex-col items-center min-w-[120px]">
+                    <span class="text-xs uppercase tracking-widest font-bold text-gray-500">Basic (Non-Sybil)</span>
+                    <span id="basicCount" class="text-2xl font-black">0</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-gray-800 rounded-lg shadow-xl overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left min-w-[800px]">
+                    <thead class="bg-gray-700">
+                        <tr>
+                            <th class="p-3">Rank</th>
+                            <th class="p-3">X Profile & Post</th>
+                            <th class="p-3">Email</th>
+                            <th class="p-3">Score</th>
+                            <th class="p-3">Wallet</th>
+                            <th class="p-3">Change Tier</th>
+                            <th class="p-3">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let vaultData = [];
+
+        function formatXHandle(input) {
+            if (!input) return '<span class="text-gray-500">N/A</span>';
+            const fullLink = input.startsWith('http') ? input : `https://${input}`;
+
+            if (input.includes('/i/status/')) {
+                return `
+                    <div class="flex flex-col gap-1">
+                        <span class="text-gray-500 font-bold text-sm">N/A</span>
+                        <a href="${fullLink}" target="_blank" class="text-xs text-gray-400 hover:text-white flex items-center w-max bg-gray-700 px-2 py-1 rounded transition">🔗 View Post</a>
+                    </div>
+                `;
+            }
+
+            const match = input.match(/(?:x\.com|twitter\.com)\/([^/?]+)/i);
+            if (match) {
+                return `
+                    <div class="flex flex-col gap-1">
+                        <a href="https://x.com/${match[1]}" target="_blank" class="text-blue-400 font-bold hover:underline">@${match[1]}</a>
+                        <a href="${fullLink}" target="_blank" class="text-xs text-gray-400 hover:text-white flex items-center w-max bg-gray-700 px-2 py-1 rounded transition">🔗 View Post</a>
+                    </div>
+                `;
+            }
+            
+            const username = input.startsWith('@') ? input : `@${input}`;
+            return `<a href="https://x.com/${username.replace('@','')}" target="_blank" class="text-blue-400 font-bold hover:underline">${username}</a>`; 
+        }
+
+        // Calculates the stats instantly based on the current data
+        function updateStats() {
+            let og = 0, gtd = 0, basic = 0;
+            
+            vaultData.forEach(user => {
+                if (user.whitelisted === 'og') og++;
+                else if (user.whitelisted === 'gtd') gtd++;
+                else basic++; // Catches 'basic' or any undefined legacy users
+            });
+
+            document.getElementById('ogCount').innerText = og;
+            document.getElementById('gtdCount').innerText = gtd;
+            document.getElementById('basicCount').innerText = basic;
+            
+            // Only OG and GTD count towards the 333 limit
+            const totalMinters = og + gtd;
+            const mintCountEl = document.getElementById('mintCount');
+            mintCountEl.innerText = totalMinters;
+            
+            // Turn the counter red if you accidentally go over 333!
+            if (totalMinters > 333) {
+                mintCountEl.classList.remove('text-purple-400');
+                mintCountEl.classList.add('text-red-500');
+            } else {
+                mintCountEl.classList.remove('text-red-500');
+                mintCountEl.classList.add('text-purple-400');
+            }
+        }
+
+        async function loadVault() {
+            const res = await fetch(`/api/admin/vault-data`);
+            const data = await res.json();
+            
+            if(data.success) {
+                vaultData = data.users; 
+                
+                updateStats(); // Run the stats calculator
+
+                const tbody = document.getElementById('tableBody');
+                tbody.innerHTML = '';
+
+                vaultData.forEach((user, index) => {
+                    const prettyX = formatXHandle(user.X);
+
+                    // Add color coding to the table rows based on tier for easy scanning
+                    let tierColor = '';
+                    if (user.whitelisted === 'og') tierColor = 'border-l-4 border-yellow-500';
+                    if (user.whitelisted === 'gtd') tierColor = 'border-l-4 border-green-500';
+                    if (user.whitelisted === 'basic') tierColor = 'border-l-4 border-transparent';
+
+                    tbody.innerHTML += `
+                        <tr class="border-b border-gray-700 hover:bg-gray-750 transition-colors ${tierColor}" id="row-${user.name}">
+                            <td class="p-3 text-gray-500 font-bold">#${index + 1}</td>
+                            <td class="p-3">${prettyX}</td>
+                            <td class="p-3 text-sm text-gray-300">${user.email || 'N/A'}</td>
+                            <td class="p-3 font-bold text-green-400">${user.score}</td>
+                            <td class="p-3 text-xs font-mono text-gray-400">${user.name}</td>
+                            <td class="p-3">
+                                <select onchange="updateTier('${user.name}', this.value)" class="bg-gray-700 rounded p-1 text-sm outline-none cursor-pointer focus:ring-2 focus:ring-purple-500">
+                                    <option value="basic" ${user.whitelisted === 'basic' ? 'selected' : ''}>Basic</option>
+                                    <option value="gtd" ${user.whitelisted === 'gtd' ? 'selected' : ''}>GTD</option>
+                                    <option value="og" ${user.whitelisted === 'og' ? 'selected' : ''}>OG</option>
+                                </select>
+                            </td>
+                            <td class="p-3">
+                                <button onclick="removeFromVault('${user.name}')" class="bg-red-900/50 text-red-400 px-3 py-1 rounded hover:bg-red-800 hover:text-white text-sm">Remove</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+            }
+        }
+
+        async function updateTier(wallet, newTier) {
+            const row = document.getElementById(`row-${wallet}`);
+            row.classList.add('bg-purple-900/40'); 
+
+            await fetch('/api/admin/vault-tier', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ walletAddress: wallet, newTier: newTier })
+            });
+
+            // Update the local data array
+            const userIndex = vaultData.findIndex(u => u.name === wallet);
+            if(userIndex !== -1) {
+                vaultData[userIndex].whitelisted = newTier;
+            }
+
+            // Recalculate stats instantly without reloading the page
+            updateStats();
+
+            // Adjust row border color dynamically
+            row.classList.remove('border-yellow-500', 'border-green-500', 'border-transparent');
+            if (newTier === 'og') row.classList.add('border-yellow-500');
+            else if (newTier === 'gtd') row.classList.add('border-green-500');
+            else row.classList.add('border-transparent');
+
+            setTimeout(() => row.classList.remove('bg-purple-900/40'), 500);
+        }
+
+        async function removeFromVault(wallet) {
+            if(!confirm('Kick them out of the vault?')) return;
+            const res = await fetch('/api/admin/vault-remove', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ walletAddress: wallet })
+            });
+            if(res.ok) loadVault(); 
+        }
+
+        function exportVault() {
+            if(vaultData.length === 0) return alert("Vault is empty!");
+            
+            const exportFormat = vaultData.map(u => ({
+                wallet: u.name,
+                email: u.email || "",
+                tier: u.whitelisted,
+                score: u.score
+            }));
+
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportFormat, null, 2));
+            const downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href", dataStr);
+            downloadAnchorNode.setAttribute("download", "pacific_pods_allowlist.json");
+            document.body.appendChild(downloadAnchorNode); 
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+        }
+
+        loadVault();
+    </script>
+</body>
+</html>

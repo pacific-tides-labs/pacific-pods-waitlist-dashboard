@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Waitlist | Command Center</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-white min-h-screen flex flex-col items-center pt-8 pb-12 px-4">
+
+    <div class="w-full max-w-7xl">
+        <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+            <h1 class="text-3xl font-bold text-blue-400">🌊 Waitlist Command Center</h1>
+            <a href="/admin/shortlist" class="bg-purple-600 px-6 py-2 rounded font-bold hover:bg-purple-500 transition shadow-lg shadow-purple-900/50 whitespace-nowrap">
+                View Shortlist Vault 🏦
+            </a>
+        </div>
+
+        <div class="bg-gray-800 p-5 rounded-lg mb-8 shadow-xl flex flex-col gap-4">
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <input type="text" id="searchWallet" placeholder="Search Wallet Address" class="bg-gray-700 p-2 rounded text-white outline-none w-full border border-gray-600 focus:border-blue-500">
+                <input type="text" id="searchX" placeholder="Search X Username" class="bg-gray-700 p-2 rounded text-white outline-none w-full border border-gray-600 focus:border-blue-500">
+                <input type="text" id="searchEmail" placeholder="Search Email" class="bg-gray-700 p-2 rounded text-white outline-none w-full border border-gray-600 focus:border-blue-500">
+            </div>
+
+            <hr class="border-gray-700">
+
+            <div class="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
+                <div class="flex items-center gap-4">
+                    <label class="font-bold text-gray-400">Min Score:</label>
+                    <input type="number" id="minScore" placeholder="e.g. 100" class="bg-gray-700 p-2 rounded text-white outline-none w-32 border border-gray-600">
+                </div>
+                
+                <div class="flex items-center gap-4 w-full md:w-auto">
+                    <input type="number" id="randomCount" placeholder="Pick Random X" class="bg-yellow-900/50 border border-yellow-700 p-2 rounded text-yellow-300 outline-none w-36">
+                    <button onclick="loadUsers(true)" class="bg-blue-600 px-8 py-2 rounded hover:bg-blue-500 font-bold w-full md:w-auto">Filter DB</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-gray-800 rounded-lg shadow-xl overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left min-w-[800px]">
+                    <thead class="bg-gray-700">
+                        <tr>
+                            <th class="p-3">Rank</th>
+                            <th class="p-3">X Profile & Post</th>
+                            <th class="p-3">Email</th>
+                            <th class="p-3">Score</th>
+                            <th class="p-3">Wallet</th>
+                            <th class="p-3">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody"></tbody>
+                </table>
+            </div>
+            
+            <div class="bg-gray-800 p-4 border-t border-gray-700 flex justify-between items-center">
+                <button onclick="changePage(-1)" id="prevBtn" class="bg-gray-700 px-4 py-2 rounded hover:bg-gray-600 disabled:opacity-50">⬅️ Prev</button>
+                <span id="pageInfo" class="font-bold text-gray-400">Loading...</span>
+                <button onclick="changePage(1)" id="nextBtn" class="bg-gray-700 px-4 py-2 rounded hover:bg-gray-600 disabled:opacity-50">Next ➡️</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentPage = 1;
+
+        // Upgraded X Handler for /i/status/ links
+        function formatXHandle(input) {
+            if (!input) return '<span class="text-gray-500">N/A</span>';
+            
+            const fullLink = input.startsWith('http') ? input : `https://${input}`;
+
+            // Check if it's a hidden username link (like /i/status/)
+            if (input.includes('/i/status/')) {
+                return `
+                    <div class="flex flex-col gap-1">
+                        <span class="text-gray-500 font-bold text-sm">N/A</span>
+                        <a href="${fullLink}" target="_blank" class="text-xs text-gray-400 hover:text-white flex items-center w-max bg-gray-700 px-2 py-1 rounded transition">
+                            🔗 View Post
+                        </a>
+                    </div>
+                `;
+            }
+
+            // Normal Extraction
+            const match = input.match(/(?:x\.com|twitter\.com)\/([^/?]+)/i);
+            if (match) {
+                return `
+                    <div class="flex flex-col gap-1">
+                        <a href="https://x.com/${match[1]}" target="_blank" class="text-blue-400 font-bold hover:underline">@${match[1]}</a>
+                        <a href="${fullLink}" target="_blank" class="text-xs text-gray-400 hover:text-white flex items-center w-max bg-gray-700 px-2 py-1 rounded transition">
+                            🔗 View Post
+                        </a>
+                    </div>
+                `;
+            }
+            
+            // Fallback for just typing a username
+            const username = input.startsWith('@') ? input : `@${input}`;
+            return `<a href="https://x.com/${username.replace('@','')}" target="_blank" class="text-blue-400 font-bold hover:underline">${username}</a>`; 
+        }
+
+        async function loadUsers(resetPage = false) {
+            if (resetPage) currentPage = 1;
+            
+            const minScore = document.getElementById('minScore').value;
+            const wallet = document.getElementById('searchWallet').value;
+            const xUser = document.getElementById('searchX').value;
+            const email = document.getElementById('searchEmail').value;
+            const randomCount = document.getElementById('randomCount').value;
+            
+            const queryParams = new URLSearchParams({
+                minScore,
+                walletAddress: wallet,
+                xUsername: xUser,
+                email,
+                randomCount,
+                page: currentPage
+            });
+            
+            const res = await fetch(`/api/admin/users?${queryParams.toString()}`);
+            const data = await res.json();
+            
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+            const rankOffset = (data.currentPage - 1) * 100;
+
+            data.users.forEach((user, index) => {
+                const displayRank = randomCount ? '🎲' : `#${rankOffset + index + 1}`;
+                const prettyX = formatXHandle(user.xUsername);
+                
+                tbody.innerHTML += `
+                    <tr class="border-b border-gray-700 hover:bg-gray-750">
+                        <td class="p-3 text-gray-500 font-bold">${displayRank}</td>
+                        <td class="p-3">${prettyX}</td>
+                        <td class="p-3 text-sm text-gray-300">${user.email || 'N/A'}</td>
+                        <td class="p-3 font-bold text-green-400">${user.score}</td>
+                        <td class="p-3 text-xs font-mono text-gray-400">${user.walletAddress}</td>
+                        <td class="p-3">
+                            <div class="flex gap-2">
+                                <select id="tier-${user.walletAddress}" class="bg-gray-700 rounded p-1 text-sm outline-none">
+                                    <option value="basic">Basic</option>
+                                    <option value="gtd">GTD</option>
+                                    <option value="og">OG</option>
+                                </select>
+                                <button onclick="moveToShortlist('${user.walletAddress}')" class="bg-blue-600 px-3 py-1 rounded hover:bg-blue-500 text-sm font-bold">Add</button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            if (randomCount) {
+                document.getElementById('pageInfo').innerText = `Showing ${data.totalUsers} Random Users`;
+                document.getElementById('prevBtn').disabled = true;
+                document.getElementById('nextBtn').disabled = true;
+            } else {
+                document.getElementById('pageInfo').innerText = `Page ${data.currentPage} of ${data.totalPages || 1} (${data.totalUsers} total)`;
+                document.getElementById('prevBtn').disabled = data.currentPage === 1;
+                document.getElementById('nextBtn').disabled = data.currentPage === data.totalPages || data.totalPages === 0;
+            }
+        }
+
+        function changePage(direction) {
+            currentPage += direction;
+            loadUsers();
+        }
+
+        async function moveToShortlist(wallet) {
+            const tier = document.getElementById(`tier-${wallet}`).value;
+            const res = await fetch('/api/admin/move-to-shortlist', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ walletAddress: wallet, whitelistTier: tier })
+            });
+            const data = await res.json();
+            if(res.ok) alert(`Success: Added to vault as ${tier.toUpperCase()}`);
+            else alert(`Error: ${data.error}`);
+        }
+
+        loadUsers();
+    </script>
+</body>
+</html>
