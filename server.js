@@ -16,7 +16,7 @@ const globalAuth = (req, res, next) => {
     const b64auth = (req.headers.authorization || '').split(' ')[1] || '';
     const [username, password] = Buffer.from(b64auth, 'base64').toString().split(':');
 
-    if (username === 'admin' && password === process.env.ADMIN_SECRET) {
+    if (username == 'admin' && password == process.env.ADMIN_SECRET) {
         return next(); 
     }
 
